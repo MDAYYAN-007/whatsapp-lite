@@ -10,16 +10,12 @@ import (
 )
 
 type Server struct {
-	room *room.Room
+	rooms map[string]*room.Room
 }
 
 func NewServer() *Server {
-	r := room.NewRoom()
-
-	go r.Start()
-
 	return &Server{
-		room: r,
+		rooms: make(map[string]*room.Room),
 	}
 }
 
@@ -43,16 +39,30 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println("Client connected")
-
-	newClient := &client.Client{
-		Conn: conn,
-		Send: make(chan []byte, 500),
+	roomName := r.URL.Query().Get("room")
+	if roomName == "" {
+		roomName = "general"
 	}
 
-	s.room.Join <- newClient
+	room := s.getRoom(roomName)
 
-	go newClient.WriteGo()
-	go newClient.ReadGo(s.room.Broadcast, s.room.Leave)
+	c := &client.Client{
+		Conn: conn,
+		Send: make(chan []byte, 256),
+	}
 
+	room.Join <- c
+
+	go c.WriteGo()
+	go c.ReadGo(room.Broadcast, room.Leave)
+}
+
+func (s *Server) getRoom(name string) *room.Room {
+	r, exists := s.rooms[name]
+	if !exists {
+		r = room.NewRoom()
+		s.rooms[name] = r
+		go r.Start()
+	}
+	return r
 }
