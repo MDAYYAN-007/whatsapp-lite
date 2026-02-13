@@ -5,13 +5,22 @@ import (
 	"net/http"
 
 	"github.com/MDAYYAN-007/whatsapp-lite/client"
+	"github.com/MDAYYAN-007/whatsapp-lite/room"
 	"github.com/gorilla/websocket"
 )
 
-type Server struct{}
+type Server struct {
+	room *room.Room
+}
 
 func NewServer() *Server {
-	return &Server{}
+	r := room.NewRoom()
+
+	go r.Start()
+
+	return &Server{
+		room: r,
+	}
 }
 
 func (s *Server) Start() error {
@@ -36,11 +45,14 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("Client connected")
 
-	client := &client.Client{
+	newClient := &client.Client{
 		Conn: conn,
-		Send: make(chan []byte, 256),
+		Send: make(chan []byte, 500),
 	}
 
-	go client.WriteGo()
-	go client.ReadGo()
+	s.room.Join <- newClient
+
+	go newClient.WriteGo()
+	go newClient.ReadGo(s.room.Broadcast, s.room.Leave)
+
 }

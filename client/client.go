@@ -11,19 +11,18 @@ type Client struct {
 	Send chan []byte
 }
 
-func (c *Client) ReadGo() {
+func (c *Client) ReadGo(broadcast chan<- []byte, leave chan<- *Client) {
 	defer c.Conn.Close()
 
 	for {
 		_, msg, err := c.Conn.ReadMessage()
-
 		if err != nil {
 			log.Println("Client disconnected")
+			leave <- c
 			break
 		}
 
-		log.Println("Received:", string(msg))
-		c.Send <- msg
+		broadcast <- msg
 	}
 }
 
