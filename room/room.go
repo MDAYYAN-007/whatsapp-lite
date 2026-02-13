@@ -2,11 +2,12 @@ package room
 
 import (
 	"github.com/MDAYYAN-007/whatsapp-lite/client"
+	"github.com/MDAYYAN-007/whatsapp-lite/models"
 )
 
 type Room struct {
 	Clients   map[*client.Client]bool
-	Broadcast chan []byte
+	Broadcast chan models.Message
 	Join      chan *client.Client
 	Leave     chan *client.Client
 }
@@ -14,7 +15,7 @@ type Room struct {
 func NewRoom() *Room {
 	return &Room{
 		Clients:   make(map[*client.Client]bool),
-		Broadcast: make(chan []byte),
+		Broadcast: make(chan models.Message),
 		Join:      make(chan *client.Client),
 		Leave:     make(chan *client.Client),
 	}
@@ -35,11 +36,13 @@ func (r *Room) Start() {
 
 		case msg := <-r.Broadcast:
 			for c := range r.Clients {
-				select {
-				case c.Send <- msg:
-				default:
-					close(c.Send)
-					delete(r.Clients, c)
+				if c.ID != msg.SenderID {
+					select {
+					case c.Send <- msg.Content:
+					default:
+						close(c.Send)
+						delete(r.Clients, c)
+					}
 				}
 			}
 		}
