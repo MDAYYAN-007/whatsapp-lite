@@ -3,15 +3,17 @@ package client
 import (
 	"log"
 
+	"github.com/MDAYYAN-007/whatsapp-lite/models"
 	"github.com/gorilla/websocket"
 )
 
 type Client struct {
+	ID   string
 	Conn *websocket.Conn
 	Send chan []byte
 }
 
-func (c *Client) ReadGo(broadcast chan<- []byte, leave chan<- *Client) {
+func (c *Client) ReadGo(broadcast chan<- models.Message, leave chan<- *Client) {
 	defer c.Conn.Close()
 
 	for {
@@ -22,7 +24,10 @@ func (c *Client) ReadGo(broadcast chan<- []byte, leave chan<- *Client) {
 			break
 		}
 
-		broadcast <- msg
+		broadcast <- models.Message{
+			SenderID: c.ID,
+			Content:  msg,
+		}
 	}
 }
 

@@ -47,6 +47,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	room := s.getRoom(roomName)
 
 	c := &client.Client{
+		ID:   conn.RemoteAddr().String(),
 		Conn: conn,
 		Send: make(chan []byte, 256),
 	}
