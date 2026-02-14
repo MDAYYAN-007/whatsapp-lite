@@ -8,9 +8,10 @@ import (
 )
 
 type Client struct {
-	ID   string
-	Conn *websocket.Conn
-	Send chan []byte
+	ID       string
+	Username string
+	Conn     *websocket.Conn
+	Send     chan []byte
 }
 
 func (c *Client) ReadGo(broadcast chan<- models.Message, leave chan<- *Client) {
@@ -19,7 +20,7 @@ func (c *Client) ReadGo(broadcast chan<- models.Message, leave chan<- *Client) {
 	for {
 		_, msg, err := c.Conn.ReadMessage()
 		if err != nil {
-			log.Println("Client disconnected")
+			log.Println("Client disconnected:", c.ID)
 			leave <- c
 			break
 		}
@@ -35,8 +36,7 @@ func (c *Client) WriteGo() {
 	defer c.Conn.Close()
 
 	for msg := range c.Send {
-		err := c.Conn.WriteMessage(websocket.TextMessage, msg)
-		if err != nil {
+		if err := c.Conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 			break
 		}
 	}
