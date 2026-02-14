@@ -3,17 +3,17 @@ package room
 import (
 	"log"
 
-	"github.com/MDAYYAN-007/whatsapp-lite/client"
-	"github.com/MDAYYAN-007/whatsapp-lite/models"
+	"github.com/MDAYYAN-007/whatsapp-lite/internal/client"
+	"github.com/MDAYYAN-007/whatsapp-lite/internal/models"
 )
 
-// Room struct containing all necesssary componenets
+// Room struct containing all necesssary componenets of a room
 type Room struct {
-	Clients   map[*client.Client]bool // Active clients in this room
-	Broadcast chan models.Message     // Incoming messages to broadcast
-	Join      chan *client.Client     // Clients joining the room
-	Leave     chan *client.Client     // Clients leaving the room
-	Quit      chan struct{}           // Signal to stop the room
+	Clients   map[*client.Client]bool
+	Broadcast chan models.Message
+	Join      chan *client.Client
+	Leave     chan *client.Client
+	Quit      chan struct{}
 }
 
 // Constructor to initialize a new Room instance
