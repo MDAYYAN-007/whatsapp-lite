@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/MDAYYAN-007/whatsapp-lite/server"
+	"github.com/MDAYYAN-007/whatsapp-lite/internal/server"
 )
 
 func main() {
