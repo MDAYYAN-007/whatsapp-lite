@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/MDAYYAN-007/whatsapp-lite/internal/auth"
 	"github.com/MDAYYAN-007/whatsapp-lite/internal/client"
@@ -146,6 +147,8 @@ func (s *Server) router() {
 				room := s.getRoom(c.CurrentRoom)
 				room.Leave <- c
 			}
+
+			close(c.Send)
 		}
 	}
 }
@@ -196,6 +199,33 @@ func (s *Server) handleMessage(msg models.Message) {
 		msg.Room = c.CurrentRoom
 		room := s.getRoom(c.CurrentRoom)
 		room.Broadcast <- msg
+	case "private":
+
+		if msg.Content == "" || msg.Username == msg.To {
+			return
+		}
+
+		s.mu.Lock()
+		target := s.clients[msg.To]
+		s.mu.Unlock()
+
+		if target == nil {
+			return
+		}
+
+		msg.Timestamp = time.Now().UTC().Format(time.RFC3339)
+
+		payload, err := json.Marshal(msg)
+		if err != nil {
+			return
+		}
+
+		select {
+		case target.Send <- payload:
+		default:
+			// slow client, drop
+		}
+
 	}
 }
 
