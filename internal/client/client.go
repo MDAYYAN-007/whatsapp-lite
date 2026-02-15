@@ -12,24 +12,23 @@ import (
 
 // Client struct representing a single connected client
 type Client struct {
-	ID       string
-	Username string
-	Conn     *websocket.Conn
-	Send     chan []byte
+	ID          string
+	Username    string
+	CurrentRoom string
+	Conn        *websocket.Conn
+	Send        chan []byte
 }
 
 // This function reads messages from the WebSocket connection and sends them to the room's broadcast channel
-func (c *Client) ReadGo(broadcast chan<- models.Message, leave chan<- *Client, roomName string) {
+func (c *Client) ReadGo(serverMessage chan<- models.Message, disconnect chan<- *Client) {
 	defer c.Conn.Close()
 
-	// This is like an infinite loop that reads messages
-	// If the client disconnects, it will break the loop and trigger the leave process
 	for {
 		_, data, err := c.Conn.ReadMessage()
 		if err != nil {
 			log.Println("Client disconnected:", c.ID)
-			leave <- c
-			break
+			disconnect <- c
+			return
 		}
 
 		var incoming models.Message
@@ -38,16 +37,15 @@ func (c *Client) ReadGo(broadcast chan<- models.Message, leave chan<- *Client, r
 			continue
 		}
 
-		if strings.TrimSpace(incoming.Content) == "" {
+		if incoming.Type == "chat" && strings.TrimSpace(incoming.Content) == "" {
 			continue
 		}
 
-		incoming.Type = "chat"
 		incoming.Username = c.Username
-		incoming.Room = roomName
 		incoming.Timestamp = time.Now().UTC().Format(time.RFC3339)
 
-		broadcast <- incoming
+		// Forward to server for routing decision
+		serverMessage <- incoming
 	}
 }
 
