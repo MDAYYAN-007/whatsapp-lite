@@ -5,5 +5,6 @@ type Message struct {
 	Room      string `json:"room"`
 	Username  string `json:"username"`
 	Content   string `json:"content"`
+	To        string `json:"to,omitempty"`
 	Timestamp string `json:"timestamp"`
 }

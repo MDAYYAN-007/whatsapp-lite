@@ -74,7 +74,6 @@ func (r *Room) Start() {
 
 				payload, _ := json.Marshal(errMsg)
 				c.Send <- payload
-				close(c.Send)
 				continue
 			}
 
@@ -110,7 +109,6 @@ func (r *Room) Start() {
 		case c := <-r.Leave:
 			if _, ok := r.Clients[c]; ok {
 				delete(r.Clients, c)
-				close(c.Send)
 				log.Printf("Client left: %s | Total clients in room %s: %d\n", c.Username, r.Name, len(r.Clients))
 
 				leaveMsg := models.Message{
@@ -157,7 +155,6 @@ func (r *Room) Start() {
 				case c.Send <- payload:
 				default:
 					log.Printf("Removing slow client: %s from room %s\n", c.Username, r.Name)
-					close(c.Send)
 					delete(r.Clients, c)
 				}
 			}
