@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
 
+	"github.com/MDAYYAN-007/whatsapp-lite/internal/auth"
 	"github.com/MDAYYAN-007/whatsapp-lite/internal/client"
 	"github.com/MDAYYAN-007/whatsapp-lite/internal/room"
 	"github.com/gorilla/websocket"
@@ -13,19 +15,29 @@ import (
 
 // Server struct to manage HTTP server and chat rooms
 type Server struct {
-	httpServer *http.Server
-	rooms      map[string]*room.Room
-	mu         sync.Mutex
+	httpServer  *http.Server
+	rooms       map[string]*room.Room
+	authService *auth.AuthService
+	mu          sync.Mutex
 }
 
 // Constructor to initialize a new Server instance
 func NewServer() *Server {
+
+	store := auth.NewInMemoryStore()
+	authService := auth.NewAuthService(store)
 	s := &Server{
-		rooms: make(map[string]*room.Room),
+		rooms:       make(map[string]*room.Room),
+		authService: authService,
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", s.handleWebSocket)
+
+	mux.HandleFunc("/register", s.handleRegister)
+	mux.HandleFunc("/login", s.handleLogin)
+
+	wsHandler := s.authMiddleware(http.HandlerFunc(s.handleWebSocket))
+	mux.Handle("/ws", wsHandler)
 
 	s.httpServer = &http.Server{
 		Addr:    ":8080",
@@ -75,6 +87,8 @@ var upgrader = websocket.Upgrader{
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Println("Incoming new Websocket connection")
 
+	username := r.Context().Value("username").(string)
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Upgrade error:", err)
@@ -86,16 +100,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if roomName == "" {
 		roomName = "general"
 	}
-	log.Println("Client requested room:", roomName)
 
 	room := s.getRoom(roomName)
 
-	// Getting the username from query params
-	username := r.URL.Query().Get("username")
-	if username == "" {
-		username = "Anonymous"
-	}
-	log.Println("Client username:", username)
+	log.Printf("Client requested room: %s\n Client username: %s", roomName, username)
 
 	c := &client.Client{
 		ID:       conn.RemoteAddr().String(),
@@ -127,4 +135,86 @@ func (s *Server) getRoom(name string) *room.Room {
 		log.Println("Using existing room:", name)
 	}
 	return r
+}
+
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		cookie, err := r.Cookie("token")
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		username, err := auth.ValidateToken(cookie.Value)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), "username", username)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.authService.Register(req.Username, req.Password); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	token, err := s.authService.Login(req.Username, req.Password)
+	if err != nil {
+		http.Error(w, "Login after register failed", http.StatusInternalServerError)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	token, err := s.authService.Login(req.Username, req.Password)
+	if err != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    token,
+		HttpOnly: true,
+		Path:     "/",
+	})
+
+	w.WriteHeader(http.StatusOK)
 }
