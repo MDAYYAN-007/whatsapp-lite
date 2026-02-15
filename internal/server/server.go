@@ -49,6 +49,7 @@ func NewServer() *Server {
 
 	mux.HandleFunc("/register", s.handleRegister)
 	mux.HandleFunc("/login", s.handleLogin)
+	mux.Handle("/me", s.authMiddleware(http.HandlerFunc(s.handleMe)))
 
 	wsHandler := s.authMiddleware(http.HandlerFunc(s.handleWebSocket))
 	mux.Handle("/ws", wsHandler)
@@ -377,4 +378,13 @@ func conversationKey(a, b string) string {
 		return a + ":" + b
 	}
 	return b + ":" + a
+}
+
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	username := r.Context().Value("username").(string)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"username": username,
+	})
 }
