@@ -56,7 +56,7 @@ func NewServer() *Server {
 
 	s.httpServer = &http.Server{
 		Addr:    ":8080",
-		Handler: mux,
+		Handler: s.corsMiddleware(mux),
 	}
 
 	// Start central router goroutine
@@ -64,6 +64,23 @@ func NewServer() *Server {
 
 	log.Println("Server initialized")
 	return s
+}
+
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Function to start the HTTP server
@@ -358,6 +375,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token, err := s.authService.Login(req.Username, req.Password)
+
 	if err != nil {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
