@@ -140,9 +140,11 @@ func (r *Room) Start() {
 			}
 
 			// Store message in history
-			r.History = append(r.History, payload)
-			if len(r.History) > r.MaxHistory {
-				r.History = r.History[1:]
+			if msg.Type != "typing" {
+				r.History = append(r.History, payload)
+				if len(r.History) > r.MaxHistory {
+					r.History = r.History[1:]
+				}
 			}
 
 			// Send message to all clients except sender
