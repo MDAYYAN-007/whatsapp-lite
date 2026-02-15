@@ -49,6 +49,8 @@ func NewServer() *Server {
 
 	mux.HandleFunc("/register", s.handleRegister)
 	mux.HandleFunc("/login", s.handleLogin)
+	mux.HandleFunc("/logout", s.handleLogout)
+
 	mux.Handle("/me", s.authMiddleware(http.HandlerFunc(s.handleMe)))
 
 	wsHandler := s.authMiddleware(http.HandlerFunc(s.handleWebSocket))
@@ -405,4 +407,30 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"username": username,
 	})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+
+	cookie, err := r.Cookie("token")
+	if err == nil {
+		username, err := auth.ValidateToken(cookie.Value)
+		if err == nil {
+			s.mu.Lock()
+			if c, ok := s.clients[username]; ok {
+				c.Conn.Close()
+				delete(s.clients, username)
+			}
+			s.mu.Unlock()
+		}
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+
+	w.WriteHeader(http.StatusOK)
 }
