@@ -9,6 +9,7 @@ import (
 
 	"github.com/MDAYYAN-007/whatsapp-lite/internal/auth"
 	"github.com/MDAYYAN-007/whatsapp-lite/internal/client"
+	"github.com/MDAYYAN-007/whatsapp-lite/internal/models"
 	"github.com/MDAYYAN-007/whatsapp-lite/internal/room"
 	"github.com/gorilla/websocket"
 )
@@ -18,7 +19,11 @@ type Server struct {
 	httpServer  *http.Server
 	rooms       map[string]*room.Room
 	authService *auth.AuthService
+	clients     map[string]*client.Client
 	mu          sync.Mutex
+
+	clientMessages   chan models.Message
+	clientDisconnect chan *client.Client
 }
 
 // Constructor to initialize a new Server instance
@@ -26,9 +31,13 @@ func NewServer() *Server {
 
 	store := auth.NewInMemoryStore()
 	authService := auth.NewAuthService(store)
+
 	s := &Server{
-		rooms:       make(map[string]*room.Room),
-		authService: authService,
+		rooms:            make(map[string]*room.Room),
+		authService:      authService,
+		clients:          make(map[string]*client.Client),
+		clientMessages:   make(chan models.Message),
+		clientDisconnect: make(chan *client.Client),
 	}
 
 	mux := http.NewServeMux()
@@ -44,8 +53,10 @@ func NewServer() *Server {
 		Handler: mux,
 	}
 
-	log.Println("Server initialized")
+	// Start central router goroutine
+	go s.router()
 
+	log.Println("Server initialized")
 	return s
 }
 
@@ -83,7 +94,7 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// Handler that updates HTTP connections to WebSocket, creates a new client and manages room joining
+// Handler that updates HTTP connections to WebSocket and registers client online
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Println("Incoming new Websocket connection")
 
@@ -95,15 +106,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Getting the room name drom query params
-	roomName := r.URL.Query().Get("room")
-	if roomName == "" {
-		roomName = "general"
-	}
-
-	room := s.getRoom(roomName)
-
-	log.Printf("Client requested room: %s\n Client username: %s", roomName, username)
+	log.Printf("Client username: %s", username)
 
 	c := &client.Client{
 		ID:       conn.RemoteAddr().String(),
@@ -114,10 +117,86 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Client connected: %s (%s)\n", username, c.ID)
 
-	room.Join <- c
+	// Register client as online
+	s.mu.Lock()
+	s.clients[username] = c
+	s.mu.Unlock()
 
 	go c.WriteGo()
-	go c.ReadGo(room.Broadcast, room.Leave, roomName)
+	go c.ReadGo(s.clientMessages, s.clientDisconnect)
+}
+
+// Central router handling all client messages and disconnects
+func (s *Server) router() {
+	for {
+		select {
+
+		case msg := <-s.clientMessages:
+			s.handleMessage(msg)
+
+		case c := <-s.clientDisconnect:
+
+			log.Println("Client disconnected cleanup:", c.Username)
+
+			s.mu.Lock()
+			delete(s.clients, c.Username)
+			s.mu.Unlock()
+
+			if c.CurrentRoom != "" {
+				room := s.getRoom(c.CurrentRoom)
+				room.Leave <- c
+			}
+		}
+	}
+}
+
+// Handles message routing based on message type
+func (s *Server) handleMessage(msg models.Message) {
+
+	s.mu.Lock()
+	c := s.clients[msg.Username]
+	s.mu.Unlock()
+
+	if c == nil {
+		return
+	}
+
+	switch msg.Type {
+
+	case "join":
+
+		if msg.Room == "" {
+			return
+		}
+
+		// Leave old room if exists
+		if c.CurrentRoom != "" {
+			oldRoom := s.getRoom(c.CurrentRoom)
+			oldRoom.Leave <- c
+		}
+
+		newRoom := s.getRoom(msg.Room)
+		c.CurrentRoom = msg.Room
+		newRoom.Join <- c
+
+	case "leave":
+
+		if c.CurrentRoom != "" {
+			room := s.getRoom(c.CurrentRoom)
+			room.Leave <- c
+			c.CurrentRoom = ""
+		}
+
+	case "chat":
+
+		if c.CurrentRoom == "" {
+			return
+		}
+
+		msg.Room = c.CurrentRoom
+		room := s.getRoom(c.CurrentRoom)
+		room.Broadcast <- msg
+	}
 }
 
 // This function retrieves an existing room or creates a new room if it doesnt exist
