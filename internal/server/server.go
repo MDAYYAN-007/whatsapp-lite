@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/MDAYYAN-007/whatsapp-lite/internal/client"
-	"github.com/MDAYYAN-007/whatsapp-lite/internal/models"
 	"github.com/MDAYYAN-007/whatsapp-lite/internal/room"
 	"github.com/gorilla/websocket"
 )
@@ -109,13 +108,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	room.Join <- c
 
-	room.Broadcast <- models.Message{
-		SenderID: "system",
-		Content:  []byte(username + " joined the room"),
-	}
-
 	go c.WriteGo()
-	go c.ReadGo(room.Broadcast, room.Leave)
+	go c.ReadGo(room.Broadcast, room.Leave, roomName)
 }
 
 // This function retrieves an existing room or creates a new room if it doesnt exist
@@ -126,7 +120,7 @@ func (s *Server) getRoom(name string) *room.Room {
 	r, exists := s.rooms[name]
 	if !exists {
 		log.Println("Creating new room:", name)
-		r = room.NewRoom()
+		r = room.NewRoom(name)
 		s.rooms[name] = r
 		go r.Start()
 	} else {
