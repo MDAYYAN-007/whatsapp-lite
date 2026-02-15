@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,8 @@ type Server struct {
 
 	clientMessages   chan models.Message
 	clientDisconnect chan *client.Client
+
+	privateHistory map[string][]models.Message
 }
 
 // Constructor to initialize a new Server instance
@@ -39,6 +42,7 @@ func NewServer() *Server {
 		clients:          make(map[string]*client.Client),
 		clientMessages:   make(chan models.Message),
 		clientDisconnect: make(chan *client.Client),
+		privateHistory:   make(map[string][]models.Message),
 	}
 
 	mux := http.NewServeMux()
@@ -123,6 +127,24 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	s.clients[username] = c
 	s.mu.Unlock()
 
+	var userMessages []models.Message
+
+	s.mu.Lock()
+	for key, messages := range s.privateHistory {
+		parts := strings.Split(key, ":")
+		if len(parts) == 2 && (parts[0] == username || parts[1] == username) {
+			userMessages = append(userMessages, messages...)
+		}
+	}
+	s.mu.Unlock()
+
+	for _, msg := range userMessages {
+		payload, err := json.Marshal(msg)
+		if err == nil {
+			c.Send <- payload
+		}
+	}
+
 	go c.WriteGo()
 	go c.ReadGo(s.clientMessages, s.clientDisconnect)
 }
@@ -205,27 +227,24 @@ func (s *Server) handleMessage(msg models.Message) {
 			return
 		}
 
+		msg.Timestamp = time.Now().UTC().Format(time.RFC3339)
+
+		key := conversationKey(msg.Username, msg.To)
 		s.mu.Lock()
+		s.privateHistory[key] = append(s.privateHistory[key], msg)
 		target := s.clients[msg.To]
 		s.mu.Unlock()
 
-		if target == nil {
-			return
+		// If user is online, deliver the message
+		if target != nil {
+			payload, err := json.Marshal(msg)
+			if err == nil {
+				select {
+				case target.Send <- payload:
+				default:
+				}
+			}
 		}
-
-		msg.Timestamp = time.Now().UTC().Format(time.RFC3339)
-
-		payload, err := json.Marshal(msg)
-		if err != nil {
-			return
-		}
-
-		select {
-		case target.Send <- payload:
-		default:
-			// slow client, drop
-		}
-
 	}
 }
 
@@ -326,4 +345,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func conversationKey(a, b string) string {
+	if a < b {
+		return a + ":" + b
+	}
+	return b + ":" + a
 }
