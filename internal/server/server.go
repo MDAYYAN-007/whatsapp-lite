@@ -138,6 +138,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Username: username,
 		Conn:     conn,
 		Send:     make(chan []byte, 500),
+		Rooms:    make(map[string]bool),
 	}
 
 	log.Printf("Client connected: %s (%s)\n", username, c.ID)
@@ -185,8 +186,8 @@ func (s *Server) router() {
 			delete(s.clients, c.Username)
 			s.mu.Unlock()
 
-			if c.CurrentRoom != "" {
-				room := s.getRoom(c.CurrentRoom)
+			for roomName := range c.Rooms {
+				room := s.getRoom(roomName)
 				room.Leave <- c
 			}
 
@@ -214,36 +215,28 @@ func (s *Server) handleMessage(msg models.Message) {
 			return
 		}
 
-		// Leave old room if exists
-		if c.CurrentRoom != "" {
-			oldRoom := s.getRoom(c.CurrentRoom)
-			oldRoom.Leave <- c
-		}
-
 		newRoom := s.getRoom(msg.Room)
-		c.CurrentRoom = msg.Room
+		c.Rooms[msg.Room] = true
 		newRoom.Join <- c
 
 	case "leave":
 
-		if c.CurrentRoom != "" {
-			room := s.getRoom(c.CurrentRoom)
+		if c.Rooms[msg.Room] {
+			room := s.getRoom(msg.Room)
 			room.Leave <- c
-			c.CurrentRoom = ""
+			delete(c.Rooms, msg.Room)
 		}
 
 	case "chat":
 
-		if c.CurrentRoom == "" {
+		if !c.Rooms[msg.Room] {
 			return
 		}
-
-		msg.Room = c.CurrentRoom
-		room := s.getRoom(c.CurrentRoom)
+		room := s.getRoom(msg.Room)
 		room.Broadcast <- msg
 	case "private":
 
-		if msg.Content == "" || msg.Username == msg.To {
+		if msg.Content == "" || msg.Username == msg.To || msg.To == "" {
 			return
 		}
 
@@ -268,7 +261,7 @@ func (s *Server) handleMessage(msg models.Message) {
 
 	case "typing":
 
-		if msg.Room != "" && c.CurrentRoom == msg.Room {
+		if msg.Room != "" && c.Rooms[msg.Room] {
 			room := s.getRoom(msg.Room)
 			room.Broadcast <- msg
 			return
@@ -415,12 +408,26 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		username, err := auth.ValidateToken(cookie.Value)
 		if err == nil {
+
 			s.mu.Lock()
-			if c, ok := s.clients[username]; ok {
-				c.Conn.Close()
-				delete(s.clients, username)
-			}
+			c, ok := s.clients[username]
 			s.mu.Unlock()
+
+			if ok {
+
+				// Remove from rooms
+				for roomName := range c.Rooms {
+					room := s.getRoom(roomName)
+					room.Leave <- c
+				}
+
+				c.Conn.Close()
+
+				// Remove from online map
+				s.mu.Lock()
+				delete(s.clients, username)
+				s.mu.Unlock()
+			}
 		}
 	}
 

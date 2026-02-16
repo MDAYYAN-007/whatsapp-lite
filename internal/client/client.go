@@ -12,11 +12,11 @@ import (
 
 // Client struct representing a single connected client
 type Client struct {
-	ID          string
-	Username    string
-	CurrentRoom string
-	Conn        *websocket.Conn
-	Send        chan []byte
+	ID       string
+	Username string
+	Rooms    map[string]bool
+	Conn     *websocket.Conn
+	Send     chan []byte
 }
 
 // This function reads messages from the WebSocket connection and sends them to the room's broadcast channel
