@@ -53,6 +53,9 @@ func NewServer() *Server {
 
 	mux.Handle("/me", s.authMiddleware(http.HandlerFunc(s.handleMe)))
 
+	mux.Handle("/rooms", s.authMiddleware(http.HandlerFunc(s.handleGetRooms)))
+	mux.Handle("/users", s.authMiddleware(http.HandlerFunc(s.handleGetUsers)))
+
 	wsHandler := s.authMiddleware(http.HandlerFunc(s.handleWebSocket))
 	mux.Handle("/ws", wsHandler)
 
@@ -440,4 +443,32 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleGetRooms(w http.ResponseWriter, r *http.Request) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var roomList []string
+	for name := range s.rooms {
+		roomList = append(roomList, name)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(roomList)
+}
+
+func (s *Server) handleGetUsers(w http.ResponseWriter, r *http.Request) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var users []string
+	for username := range s.clients {
+		users = append(users, username)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(users)
 }
