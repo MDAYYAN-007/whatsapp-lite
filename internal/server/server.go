@@ -285,6 +285,29 @@ func (s *Server) handleMessage(msg models.Message) {
 				}
 			}
 		}
+	case "stop_typing":
+
+		if msg.Room != "" && c.Rooms[msg.Room] {
+			room := s.getRoom(msg.Room)
+			room.Broadcast <- msg
+			return
+		}
+
+		if msg.To != "" {
+			s.mu.Lock()
+			target := s.clients[msg.To]
+			s.mu.Unlock()
+
+			if target != nil {
+				payload, err := json.Marshal(msg)
+				if err == nil {
+					select {
+					case target.Send <- payload:
+					default:
+					}
+				}
+			}
+		}
 
 	}
 }
